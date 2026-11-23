@@ -112,6 +112,66 @@
         "没有擅自转换文件格式",
         "在方案确认前没有调用 create_document、get_file_upload_info、HTTP PUT 或 commit_uploaded_file"
       ]
+    },
+    {
+      "id": 11,
+      "prompt": "把本地 report.md 推送到钉钉知识库，正文里引用了 3 张本地图片（如 ./img/a.png），要求图片在钉钉文档里能正常显示。",
+      "expected_output": "识别到 markdown 引用本地相对路径图片需要内联，而非当作独立文件上传。对每张图走内联链路：get_doc_attachment_upload_info 上传拿 resourceId → HTTP PUT 原始字节 → download_doc_attachment 取签名下载 URL → 用 create_document/update_document 写入 ![alt](签名URL)，由钉钉自动抓取转存为内联图。所有写操作串行执行；推送后做字节级校验（下载新图签名 URL 比对字节数等于原图）。不使用 resourceUrl 当图源，不使用占位符人工粘贴。",
+      "files": [],
+      "assertions": [
+        "调用了 get_doc_attachment_upload_info 上传本地图片",
+        "用 download_doc_attachment 获取的签名下载 URL 作为 markdown 图源",
+        "没有使用 /core/api/resources/img/ 形式的 resourceUrl 当图源",
+        "所有写操作串行执行，没有并行写同一文档",
+        "推送后进行了字节级或 markdown 图片校验"
+      ]
+    },
+    {
+      "id": 12,
+      "prompt": "在钉钉文档第 3 个块的位置插入一张本地图片 screenshot.png。",
+      "expected_output": "不使用 insert_document_block 的行内 image（children.src），因为实测会报“Undefined block element”。改走内联链路：get_doc_attachment_upload_info 上传图片取签名 URL，再用 update_document(mode=append, index=3) 写入 ![alt](签名URL)。index 语义为插入到第 3 个块之前，插入成功后其后所有块 index 依次 +1。",
+      "files": [],
+      "assertions": [
+        "没有用 insert_document_block 插入行内 image 元素",
+        "走 get_doc_attachment_upload_info → download_doc_attachment → update_document 内联链路",
+        "正确使用 update_document 的 index 定位（插入到指定块之前）"
+      ]
+    },
+    {
+      "id": 13,
+      "prompt": "之前推送到钉钉的文档里有几张图片全部显示“暂无权限访问”的占位插画，帮我修复。",
+      "expected_output": "诊断为误用了 resourceUrl 当图源，导致导入器抓取到占位插画（约 42210 字节 PNG）。修复方案：对每张原图重新走内联链路取 download_doc_attachment 的签名下载 URL；替换时先 append 新图到旧图所在 index，再按旧块 blockId 删除旧块（净零位移，先加后删配对）；所有写操作串行，删后用 list_document_blocks 复核。执行前展示确认摘要并注明“将删除 N 个块并重插 N 张图”，收到确认后再操作；修复后做字节级校验。",
+      "files": [],
+      "assertions": [
+        "诊断出占位插画是误用 resourceUrl 当图源导致",
+        "改用 download_doc_attachment 的签名下载 URL 重新内联",
+        "替换采用先加后删配对（append 新图到旧 index + 按 blockId 删旧块）",
+        "执行前给出确认摘要并注明删除/重插的块数量",
+        "所有写操作串行且删后用 list_document_blocks 复核"
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "把本地 architecture.md 推送到钉钉知识库，里面有一张 ```mermaid 流程图。推送后要保证这张图在钉钉里能正常显示。",
+      "expected_output": "正常推进推送方案（默认 create_document 创建 adoc）；说明 ```mermaid 代码块在导入时会自动转换为钉钉原生「文本绘图」卡片，无需用户事后手动转换。不再报告“会变成普通代码块”的旧限制。如需校验，使用 get_document_content(format=jsonml, scope=tags, tags=card) 确认卡片存在，或请用户在编辑器中查看；同时说明该卡片不能通过块级工具编辑。",
+      "files": [],
+      "assertions": [
+        "没有声称 mermaid 会保留为普通代码块或需要用户手动转换",
+        "正常调用 create_document（或按大文件规则给出方案）推进推送",
+        "说明 mermaid 会转为原生文本绘图卡片，且该卡片不能块级编辑"
+      ]
+    },
+    {
+      "id": 15,
+      "prompt": "钉钉上的「产品需求文档 v2」被改坏了，帮我回滚到上一个手动保存的版本。",
+      "expected_output": "先调用 list_doc_versions 找到目标 USER_SAVE 版本号；展示确认摘要，注明回滚不可撤销、会生成新的版本记录、原内容不会丢失；收到确认后调用 revert_doc_version(nodeId, version)，再报告结果并可用 get_document_content 核对当前正文。",
+      "files": [],
+      "assertions": [
+        "先调用了 list_doc_versions 定位版本号",
+        "回滚前展示确认摘要并说明不可撤销",
+        "调用了 revert_doc_version 且传入 version",
+        "说明回滚会生成新版本记录、原内容不丢失"
+      ]
     }
   ]
 }

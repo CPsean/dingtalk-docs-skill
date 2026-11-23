@@ -1,8 +1,8 @@
 ---
 name: dingtalk-docs-skill
-description: 当用户想要操作钉钉文档或向钉钉知识库推送本地文件时使用本 Skill。支持：将 Markdown/纯文本推送为可编辑钉钉文档、原格式上传 HTML/图片/PDF/Office 等文件、拉取云端文档到本地、覆盖/追加更新文档内容、块级精确编辑、搜索与列出知识库文档、下载文件与附件、导出文档为 PDF/Word、管理节点权限、创建/重命名/移动/复制/删除文档与文件夹、初始化钉钉文档 MCP 配置。当用户想操作飞书、语雀、Notion 等其他平台、只修改本地文件、管理钉钉 IM 消息或群组时，不要使用本 Skill。
+description: 当用户想要操作钉钉文档或向钉钉知识库推送本地文件时使用本 Skill。支持：将 Markdown/纯文本推送为可编辑钉钉文档、原格式上传 HTML/图片/PDF/Office 等文件、把 docx/xlsx/md 等导入为在线文档、拉取云端文档到本地、覆盖/追加更新文档内容、块级精确编辑、保存与回滚历史版本、按模板创建文档、设置封面与背景、搜索与列出知识库文档、下载文件与附件、导出文档为 docx/markdown/PDF、管理节点权限与所有权、创建/重命名/移动/复制/删除文档与文件夹、初始化钉钉文档 MCP 配置。当用户想操作飞书、语雀、Notion 等其他平台、只修改本地文件、管理钉钉 IM 消息或群组时，不要使用本 Skill。
 license: MIT
-compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Compatible with any MCP-capable agent (Claude Code, Cursor, VS Code, Roo Code, Gemini CLI, Codex, etc.). Auto-detects Claude Code; falls back to writing config files or manual setup for other agents.
+compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Installable as an Agent Skill in Claude Code, Claude Desktop, Cursor, VS Code Copilot, Codex CLI, Gemini CLI, Qoder, Trae, WorkBuddy, and Pi, plus any client that supports the Agent Skills standard or remote MCP. Auto-detects Claude Code; falls back to writing config files or manual setup for other agents.
 ---
 
 # 钉钉文档
@@ -16,23 +16,27 @@ compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Comp
 ## 能力范围
 
 **读**
-- 拉取云端文档正文为 markdown（保存到本地）
+- 拉取云端文档正文为 markdown 或 JSONML（可局部读取、读取指定历史版本）
 - 列出知识库/文件夹下的文档节点
-- 按关键词搜索文档
-- 获取文档元信息（标题、类型、创建时间等）
+- 按关键词搜索文档、搜索文档模板
+- 查看最近访问/编辑的文档
+- 获取文档元信息（标题、类型、创建时间等）与封面/背景样式
 - 下载钉盘文件或文档内嵌附件
 
 **写**
 - 按内容类型将本地内容推送到知识库：创建可编辑的 adoc 文档，或保留原格式上传文件
 - 覆盖或追加内容到已有文档
-- 按块精确编辑（插入/更新/删除段落、标题、表格等）
+- 按块精确编辑（插入/更新/删除段落、标题、表格等），支持建议模式（生成待处理建议，不直接改已确认正文）
 - 上传本地文件（PDF、图片、Word 等）到知识库
+- 将本地图片**内联**嵌入文档正文（自动上传转存为内联图，非占位符人工粘贴）
+- 按模板创建文档；保存/回滚历史版本；设置封面与背景色
+- 将本地 docx/xls(x)/md/txt/xmind/mark 导入为在线文档
 
 **管理**
 - 创建文件夹
 - 重命名/移动/复制/删除文档和文件夹
-- 导出文档为 PDF 或 Word 格式
-- 查看/添加/修改知识库节点的成员权限
+- 导出文档为 docx、markdown 或 PDF
+- 查看/添加/修改/移除知识库节点的成员权限，转移文档或知识库所有权
 
 **不负责：**
 - 飞书、语雀、Notion 等其他平台
@@ -55,25 +59,35 @@ compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Comp
 
 3. 请用户将 URL 粘贴给你
 
-4. 收到 URL 后，按以下顺序尝试注册 MCP 服务（`dingtalk-doc` 为服务名，必须为 ASCII）：
+4. 收到 URL 后，**先做两项安全校验，再注册**：
 
-   **方案 A — Claude Code**（优先尝试，运行命令看是否成功）：
+   **① URL 域名白名单**：只接受钉钉官方域名——`aihub.dingtalk.com`、`alidocs.dingtalk.com` 及其它 `*.dingtalk.com` 子域。若 URL 域名不在白名单内，**停止注册**并提示用户「该 URL 非钉钉官方域名，可能填错或有风险，请核对」，用户确认后再继续。此举防止把 MCP 流量（含个人 API Key）导向恶意/错误 endpoint。
+
+   **② 写前确认（不静默改用户环境）**：写任何配置文件前，先向用户展示**目标文件完整路径 + 将写入的确切 JSON 内容**，用户显式同意后再写；只追加 `dingtalk-doc` 新条目，绝不覆盖或改动文件里已有的其它配置。
+
+   两项校验通过后，按以下顺序尝试注册 MCP 服务（`dingtalk-doc` 为服务名，必须为 ASCII）：
+
+   **方案 A — Claude Code**（优先尝试；默认项目级 scope，运行前把命令展示给用户）：
    ```bash
-   claude mcp add --transport http --scope user dingtalk-doc "<用户提供的 URL>"
+   claude mcp add --transport http --scope local dingtalk-doc "<用户提供的 URL>"
    ```
-   成功则跳到步骤 5。
+   - `--scope local`：仅当前项目生效（项目级，影响面最小）。用户明确希望所有项目通用时，才改 `--scope user`（全局），改前先确认。
+   - 成功则跳到步骤 5。
 
    **方案 B — 写入配置文件**（通用方案，大多数 Agent 均可用）：
 
+   **优先项目级、全局需确认**：优先写 workspace 内的**项目级**配置（影响面最小、随项目走、不碰用户全局环境）；仅当该 Agent 没有项目级配置项（如 Gemini CLI、OpenAI Codex 只有全局），或用户明确同意写全局时，才写**全局用户级**配置，且写前必须按步骤 4 ② 展示路径 + 内容确认。
+
    检测当前环境存在哪些配置文件，找到第一个匹配项写入：
 
-   | Agent | 配置文件（全局） | 配置文件（项目级） | `mcpServers` 键名 |
-   |-------|---------------|----------------|-----------------|
-   | Cursor | `~/.cursor/mcp.json` | `.cursor/mcp.json` | `mcpServers` |
-   | VS Code Copilot | `~/Library/Application Support/Code/User/mcp.json`（Mac）<br>`%APPDATA%\Code\User\mcp.json`（Win） | `.vscode/mcp.json` | `servers` |
-   | Roo Code | — | `.roo/mcp.json` | `mcpServers` |
-   | Gemini CLI | `~/.gemini/settings.json` | — | `mcpServers` |
-   | OpenAI Codex | `~/.codex/config.json` | — | `mcpServers` |
+   | Agent | 配置文件（项目级，优先写这个） | 配置文件（全局，仅无项目级或用户确认后写） | `mcpServers` 键名 |
+   |-------|----------------|----------------|-----------------|
+   | Cursor | `.cursor/mcp.json` | `~/.cursor/mcp.json`（写前确认） | `mcpServers` |
+   | VS Code Copilot | `.vscode/mcp.json` | `~/Library/Application Support/Code/User/mcp.json`（Mac）<br>`%APPDATA%\Code\User\mcp.json`（Win）（写前确认） | `servers` |
+   | Roo Code | `.roo/mcp.json` | —（无全局需求） | `mcpServers` |
+   | Gemini CLI | —（无项目级） | `~/.gemini/settings.json`（仅全局，写前确认） | `mcpServers` |
+   | OpenAI Codex | —（无项目级） | `~/.codex/config.toml`（仅全局，写前确认） | `mcp_servers`（TOML 表，字段 `url`） |
+   | Pi | `.pi/mcp.json` | `~/.pi/agent/mcp.json`（写前确认） | `mcpServers` |
 
    向目标文件追加（若文件已有 `mcpServers`/`servers`，只添加新条目，不覆盖原有内容）：
 
@@ -88,6 +102,7 @@ compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Comp
    }
    ```
    > VS Code Copilot 的 `.vscode/mcp.json` 使用 `"servers"` 而非 `"mcpServers"`，写入时注意区分。
+   > Qoder、Trae、Claude 桌面版等图形客户端请在各自的 MCP / 连接器设置中手动新增 StreamableHTTP 服务（服务名 `dingtalk-doc`），不依赖本表写入；WorkBuddy 也可直接写入 `~/.workbuddy/mcp.json`（`mcpServers`，字段 `type` + `url`）。
 
    成功写入则跳到步骤 5。
 
@@ -119,7 +134,7 @@ compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Comp
 
 - 当用户说"列出我的知识库文档"、"推送到知识库"等未指明位置的操作时，优先使用默认知识库 URL
 - **读取顺序**：① 读取 `references/dingtalk.config` 中的 `DINGTALK_DEFAULT_WORKSPACE_URL`；② 若文件不存在或值为空，检查环境变量 `$DINGTALK_DEFAULT_WORKSPACE_URL`（兼容已有 Claude Code 配置）；③ 两者均无则询问用户
-- 获得 URL 后，调用 `get_document_info` 传入该 URL 解析出 nodeId，再用 nodeId 调用 `list_nodes` 或作为 `parentNodeId`
+- 获得 URL 后，调用 `get_document_info` 传入该 URL 解析出 nodeId，再以该 nodeId 作为 `list_nodes` / `create_folder` 的 `folderId`（知识库根则用 `workspaceId`）
 
 ### 更改默认知识库
 
@@ -134,6 +149,8 @@ compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Comp
 
 ### 安全规则
 
+- **URL 域名白名单**：注册的 MCP URL 只接受钉钉官方域名（`*.dingtalk.com`）；非白名单域名先停下让用户核对，防止把含 API Key 的流量导向恶意/错误 endpoint
+- **写前确认 + 优先项目级**：写任何 Agent 配置文件前展示目标路径 + 确切内容供用户确认；优先项目级配置，全局用户级配置仅在无项目级选项或用户明确同意时写，且只追加不覆盖
 - MCP 服务 URL 含有个人 API Key，**不得出现在任何版本控制文件中**；写入配置后不要在回复中重复显示完整 URL
 - `references/dingtalk.config` 保存知识库 URL，已被 `.gitignore` 排除，不会提交到版本控制
 - 如果用户将 URL 粘贴到聊天中，立即写入配置后不再引用
@@ -151,25 +168,48 @@ compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Comp
 ### 执行前确认规则
 
 **需要确认的操作**（所有会写入或修改云端数据的操作）：
-`create_document`、`update_document`、`create_folder`、`create_file`、`delete_document`、`rename_document`、`move_document`、`copy_document`、`insert_document_block`、`update_document_block`、`delete_document_block`、文件上传（`get_file_upload_info` + `commit_uploaded_file`）、`submit_export_job`、`add_permission`、`update_permission`
+`create_document`、`update_document`、`create_folder`、`create_file`、`delete_document`、`rename_document`、`move_document`、`copy_document`、`insert_document_block`、`update_document_block`、`delete_document_block`、文件上传（`get_file_upload_info` + `commit_uploaded_file`）、文件导入（`create_import_session` + HTTP PUT + `confirm_import`）、`submit_export_job`、`add_permission`、`update_permission`、`remove_permission`、`transfer_owner`、`save_doc_version`、`revert_doc_version`、`update_document_style`、`apply_doc_template`
 
 **无需确认的操作**（只读）：
-`search_documents`、`list_nodes`、`get_document_info`、`get_document_content`、`list_document_blocks`、`list_permission`、`query_export_job`、`download_file`、`download_doc_attachment`
+`search_documents`、`search_doc_templates`、`list_nodes`、`list_doc_templates`、`get_recent_list`、`get_document_info`、`get_document_content`、`get_document_style`、`list_document_blocks`、`list_doc_versions`、`list_permission`、`query_export_job`、`query_import_task`、`download_file`、`download_doc_attachment`
+
+> **只读 ≠ 无边界**（敏感读取护栏）：`get_document_content` / `download_*` 会把云端正文或文件字节拉进本地上下文。遵循**最小化**——只读当前任务确需的文档、不批量拉全文；请求模糊或命中多目标时**先确认具体是哪一篇**再读；读取内容仅用于当前任务，不外传、不沉淀到无关文件。
 
 **确认摘要格式**（根据操作类型调整）：
 
 ```
 即将执行以下操作，请确认：
 
-操作：<创建 / 更新（覆盖）/ 更新（追加）/ 删除 / 重命名 / 移动 / 复制 / 创建文件夹>
+操作：<创建 / 更新（覆盖）/ 更新（追加）/ 删除 / 重命名 / 移动 / 复制 / 创建文件夹 / 图片内联 / 批量修复>
 目标：<文档标题或文件夹名>
 位置：<知识库名或文件夹路径>
-说明：<一句话描述本次变更，例如"将以本地文件 xxx.md 的内容覆盖云端文档全文">
+说明：<一句话描述本次变更，例如"将以本地文件 xxx.md 的内容覆盖云端文档全文"；批量修复须注明"将删除 N 个块并重插 N 张图">
 
 确认请回复「是」或「确认」，取消请回复「否」或「取消」。
 ```
 
 收到取消时：停止操作，不重试，告知用户已取消。
+
+> **高影响操作**：`revert_doc_version`（回滚不可撤销，会生成新版本记录）、`transfer_owner`（转交后原所有者按 `reserveOldOwnerRole` 保留或失去权限）、`remove_permission`（成员将失去该节点的直接授权）三项须在确认摘要中明示后果；`save_doc_version` 只新增版本记录，`update_document_style` 只改封面/背景。
+
+## 数据安全与边界
+
+本 Skill 在本地与钉钉云端之间**双向搬运数据**。以下三类跨边界操作，除「执行前确认」外，还须在回复中明示数据去向与风险（对齐 clawhub 上架安全要求）：
+
+### 1. 数据离开本地（上传 / HTTP PUT）
+
+- **文件上传**（`get_file_upload_info` → HTTP PUT → `commit_uploaded_file`）、**文件导入**（`create_import_session` → HTTP PUT → `confirm_import`）与**图片内联**（`get_doc_attachment_upload_info` → HTTP PUT）会把**本地文件的原始字节经 HTTP PUT 直传钉钉 OSS 云端**，再入库/转存——这不是纯本地操作。
+- 确认摘要须写明：「本地文件 `<名称>` 的原始字节将上传到钉钉云端存储」，用户同意后再传；导入类操作还要说明「将转换为钉钉在线文档」。
+- 上传目标 URL 由钉钉官方接口签发（OSS 凭证），**不接受用户手填的任意 endpoint**。
+
+### 2. 数据扩散（导出 / 下载 / 临时签名 URL）
+
+- **导出**（`submit_export_job`）产生文档的**可移植副本**（PDF/Word/markdown）；**下载**（`download_file` / `download_doc_attachment`）与签名 URL 把云端内容取到本地或生成**临时可访问链接**。
+- 提示用户：导出/下载产生的是**可扩散副本**，签名 URL 在时效内**任何持有者可访问**；后续存储、分享、传播的责任与风险由用户承担，链接有时效、勿长期外发。
+
+### 3. 敏感读取（拉正文进上下文）
+
+- `get_document_content` 等只读操作把云端正文拉进当前对话上下文。遵循**最小化**：只读确需文档、不批量拉全文、模糊请求先确认具体文档、内容仅用于当前任务（详见「执行前确认规则」下的敏感读取护栏）。
 
 ## MCP 工具映射
 
@@ -182,19 +222,29 @@ compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Comp
 | 拉取 adoc 文字文档内容到本地 | `get_document_content` |
 | 覆盖或追加文档内容 | `update_document` |
 | 精确块级编辑（段落/标题/表格等） | `list_document_blocks` → `insert/update/delete_document_block` |
+| 以建议模式改正文（不改已确认内容） | `insert/update_document_block`（`suggestion=true`）；读取合并视图用 `get_document_content(suggestion=true)` |
+| 将本地图片内联嵌入文档正文 | `get_doc_attachment_upload_info` → HTTP PUT → `download_doc_attachment`（取签名 URL）→ `update_document`(append, `![](签名URL)`) |
 | 列出知识库/文件夹下的文档 | `list_nodes` |
 | 按关键词搜索文档 | `search_documents` |
 | 获取文档元信息（标题、类型等） | `get_document_info` |
 | 下载钉盘文件 | `download_file` |
 | 下载文档内嵌附件 | `download_doc_attachment` |
-| 导出文档为 PDF/Word | `submit_export_job` → `query_export_job`（轮询至完成）|
+| 导出文档为 docx/markdown/PDF | `submit_export_job` → `query_export_job`（轮询至完成）|
+| 按模板创建文档 | `list_doc_templates` / `search_doc_templates` → `apply_doc_template` |
+| 查看历史版本 | `list_doc_versions` |
+| 保存当前版本 / 回滚到历史版本 | `save_doc_version` / `revert_doc_version` |
+| 读取指定历史版本或局部 JSONML | `get_document_content`（`historyVersion`；`format=jsonml` + `scope`/`tags`）|
+| 查看/设置文档封面与背景 | `get_document_style` / `update_document_style` |
+| 将 docx/xlsx/md 等导入为在线文档 | `create_import_session` → HTTP PUT → `confirm_import` → `query_import_task` |
+| 查看最近访问/编辑的文档 | `get_recent_list` |
 | 创建文件夹 | `create_folder` |
 | 删除文档节点 | `delete_document` |
 | 重命名节点 | `rename_document` |
 | 移动节点到其他文件夹 | `move_document` |
 | 复制节点到其他文件夹 | `copy_document` |
 | 查看节点成员权限 | `list_permission` |
-| 添加/修改节点成员权限 | `add_permission` / `update_permission` |
+| 添加/修改/移除节点成员权限 | `add_permission` / `update_permission` / `remove_permission` |
+| 转移文档或知识库所有权 | `transfer_owner` |
 
 ## 失败处理
 
@@ -211,6 +261,9 @@ compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Comp
   > https://open.dingtalk.com/document/dingstart/dingtalk-developer
   >
   > 开通步骤简述：登录钉钉开放平台 → 选择对应组织 → 完成开发者认证/开通。完成后重新尝试操作。
+- **并发写冲突**：报 `unable to write to document concurrently` 时，说明有多个写操作同时进行。所有写操作（create/update/insert/delete block）必须**严格串行**，一个完成后再执行下一个；不要并行提交
+- **图片内联后显示"暂无权限访问"/占位插画**：说明用了 `resourceUrl`（`/core/api/resources/img/…`）当图源且该资源对导入器不可达，抓到的是占位图（≈42210 字节 PNG）。改用 `download_doc_attachment` 返回的**签名下载 URL** 重新内联，并按字节级验收复核
+- **删块结果异常**：删除后若发现块未删或误删邻块，用 `list_document_blocks` 复核实际结果再决定下一步，不要盲目重试删除
 - **其他 API 报错**：原文展示错误信息，不猜测原因，不自动重试
 
 ## 关键约束
@@ -219,8 +272,12 @@ compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Comp
 - `create_document` 和 `update_document` 的 `markdown` 参数上限均为 **10,000 字符**；超出会报 `invalidRequest.inputArgs.invalid` 错误。推送前应先估算内容字符数，超过 **9,500 字符**（留余量）时走大文档推送策略（见下文）
 - `delete_document` 是移入回收站，不是永久删除，30 天内可从回收站恢复
 - `list_nodes` 只返回直接子节点，不递归。需要深层列表时需要多次调用
+- **所有写操作严格串行**：`create_document`、`update_document`、`insert/update/delete_document_block` 不能并行作用于同一文档，否则报 `unable to write to document concurrently`；删块后必须 `list_document_blocks` 复核
+- **含图推送时 index 按块算**：图片不计入 10000 字符上限，但每张内联图占用一个块位；用 `update_document`(append, index) 定位时，index 以 `list_document_blocks` 的块序号为准，插入后其后所有块 index +1
 - **导出为异步操作**：`submit_export_job` 返回 jobId 后需轮询 `query_export_job` 直到状态完成，再将下载链接告知用户；轮询间隔建议 1-2 秒
-- **Mermaid 文本绘图**：通过 `create_document` 推送的 ` ```mermaid ` 代码块会被解析为普通代码块，而非钉钉原生文本绘图块。钉钉的文本绘图是私有块类型，API 层未暴露，无法通过 MCP 创建或转换。推送前告知用户此限制，建议推送后在钉钉编辑器中手动将代码块转换为文本绘图
+- **Mermaid 文本绘图**：` ```mermaid ` 代码块在 `create_document` / `update_document`（含 append）导入时会**自动转换为钉钉原生「文本绘图」卡片**（2026-11 实测）。该卡片在块级 API 中显示为 `unknown`（`rawType=card`），不能用 `insert/update/delete_document_block` 编辑；`get_document_content` 回读 markdown 仍返回 ` ```mermaid ` 代码块；`overwrite` 会连同卡片一起清空。需要改图请在钉钉编辑器中操作
+- **历史版本**：回滚前先用 `list_doc_versions` 确认版本号；`revert_doc_version` 不可撤销，但会生成新版本记录、原内容不丢失。`get_document_content(historyVersion)` 需 EDITOR 权限，传入不存在的版本号会**静默返回最新版本**，须用响应中的 `historyVersion` 核对
+- **导出格式**：`submit_export_job` 的 `exportFormat` 按 schema 支持 `docx` / `markdown` / `pdf`；工具描述文案只写 docx/markdown，若 pdf 返回 `invalidRequest.export.unsupportedFormat`，改用 docx 并告知用户
 - 操作完成后，从返回值中提取文档链接告知用户，方便直接点击查看
 
 ## 对话中上传文件的处理
@@ -238,6 +295,8 @@ compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Comp
 | 无扩展名或类型无法判断的文件 | 先询问用户希望“在线可编辑文档”还是“原文件上传” | 不擅自猜测或转换；只有用户确认文本内容且希望在线编辑时才创建 adoc |
 
 用户明确要求改变默认方案时，以用户要求为准。例如，用户要求将 HTML 转为可编辑文字文档时，先说明转换后可能丢失样式或交互，再经确认后转换为 Markdown / 纯文本并使用 `create_document`。
+
+> **导入为在线文档（可选路径）**：docx/doc/xlsx/xls/md/txt/xmind/mark 文件，在用户明确希望「导入成在线可编辑文档」时，可走 `create_import_session` → HTTP PUT → `confirm_import` → `query_import_task`（单文件 ≤ 20MB）。用户未明确时，仍按上表默认「保留原格式上传」，不要擅自替用户选择导入。
 
 ### MD 优先与方案确认
 
@@ -295,8 +354,18 @@ compatibility: Requires dingtalk-doc MCP server (StreamableHttp transport). Comp
 
 收到用户选择后再执行，不要擅自决定。
 
+## 本地图片内联到文档正文
+
+当用户要把本地图片作为**文档正文的一部分**（内联图，随文档在线渲染/评论），而非作为独立文件存入知识库时，走自动内联链路，**不要用占位符 + 人工粘贴**。完整步骤与陷阱见 `references/mcp-tools.md`「本地图片内联到文档正文」，要点：
+
+1. **区分两种图片意图**：图片作为独立文件存档 → `get_file_upload_info` 三步上传（见「对话中上传文件的处理」）；图片内联进正文 → 本节链路
+2. **链路**：`get_doc_attachment_upload_info` 上传拿 `resourceId` → HTTP PUT 原始字节 → `download_doc_attachment` 取**签名下载 URL** → `update_document`(append) 或 `create_document` 写入 `![alt](签名URL)`，钉钉自动抓取转存为内联图
+3. **统一用签名下载 URL**：`resourceUrl`（`/core/api/resources/img/…`）行为不稳定——资源可达时能解析，不可达时会变「暂无权限访问」占位插画；为可靠起见一律用 `download_doc_attachment` 的签名下载 URL
+4. **替换旧图净零位移**：先 append 新图到旧图 index，再按 `blockId` 删旧块，先加后删配对完成
+5. **字节级验收**：推送后导出或取 markdown，下载新图签名 URL 比对字节数等于原图；抽查 2-3 张。修复类批量操作（删坏块 + 重插图）在执行前确认摘要中注明「将删除 N 个块并重插 N 张图」
+
 ---
 
 ## 资源导航
 
-- `references/mcp-tools.md` — 全部 MCP 工具详细说明，按场景分组
+- `references/mcp-tools.md` — 全部 MCP 工具详细说明，按场景分组（含「本地图片内联到文档正文」完整链路与「已知陷阱速查」）
